@@ -18,13 +18,15 @@ typedef struct {
     float validity; // Validity of the estimated baud rate
 } BaudInfo_t;
 
-extern volatile bool autobaud_running;
-extern volatile bool autobaud_stopped;
-extern QueueHandle_t baudQueue;
-extern TaskHandle_t autobaud_taskhandle;
+// Per CDC interface (probe)
+extern volatile bool autobaud_running[];
+extern volatile bool autobaud_stopped[];
+extern QueueHandle_t baudQueue[];
+extern TaskHandle_t autobaud_taskhandle[];
 
-void autobaud_start(void);
-void autobaud_wait_stop(void);
+void autobaud_start(uint8_t itf);
+void autobaud_wait_stop(uint8_t itf);
+// param is the CDC interface (probe) index
 void autobaud_thread(void * param);
 
 #endif

@@ -27,7 +27,12 @@
 #define BOARD_CONFIG_H_
 
 #include "pico/stdlib.h"
-#if defined(RASPBERRYPI_DEBUG_PROBE)
+#if defined(DUAL_PROBE_PICO)
+#if !defined(RASPBERRYPI_PICO)
+#error Dual probe firmware is only supported on the Raspberry Pi Pico (PICO_BOARD=pico)
+#endif
+#include "board_pico_dual_probe_config.h"
+#elif defined(RASPBERRYPI_DEBUG_PROBE)
 #include "board_debug_probe_config.h"
 #elif defined(RASPBERRYPI_PICO) || defined(RASPBERRYPI_PICO2)
 #include "board_pico_config.h"

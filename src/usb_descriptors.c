@@ -72,20 +72,39 @@ enum
   ITF_NUM_PROBE, // Old versions of Keil MDK only look at interface 0
   ITF_NUM_CDC_COM,
   ITF_NUM_CDC_DATA,
+#ifdef DUAL_PROBE_PICO
+  ITF_NUM_PROBE_B,
+  ITF_NUM_CDC_B_COM,
+  ITF_NUM_CDC_B_DATA,
+#endif
   ITF_NUM_RESET,
   ITF_NUM_TOTAL
 };
+
+#ifdef DUAL_PROBE_PICO
+#if (PROBE_DEBUG_PROTOCOL != PROTO_DAP_V2)
+#error The dual probe only supports CMSIS-DAP v2
+#endif
+TU_VERIFY_STATIC(ITF_NUM_PROBE == PROBE_DAP_ITF && ITF_NUM_PROBE_B == PROBE_B_DAP_ITF, "DAP interface numbers don't match the board config");
+#endif
 
 #define CDC_NOTIFICATION_EP_NUM 0x81
 #define CDC_DATA_OUT_EP_NUM 0x02
 #define CDC_DATA_IN_EP_NUM 0x83
 #define DAP_OUT_EP_NUM 0x04
 #define DAP_IN_EP_NUM 0x85
+#ifdef DUAL_PROBE_PICO
+#define CDC_B_NOTIFICATION_EP_NUM 0x86
+#define CDC_B_DATA_OUT_EP_NUM 0x07
+#define CDC_B_DATA_IN_EP_NUM 0x88
+#define DAP_B_OUT_EP_NUM 0x09
+#define DAP_B_IN_EP_NUM 0x8A
+#endif
 
 #if (PROBE_DEBUG_PROTOCOL == PROTO_DAP_V1)
 #define CONFIG_TOTAL_LEN  (TUD_CONFIG_DESC_LEN + TUD_CDC_DESC_LEN + TUD_HID_INOUT_DESC_LEN)
 #else
-#define CONFIG_TOTAL_LEN  (TUD_CONFIG_DESC_LEN + TUD_CDC_DESC_LEN + TUD_VENDOR_DESC_LEN + TUD_RPI_RESET_DESC_LEN)
+#define CONFIG_TOTAL_LEN  (TUD_CONFIG_DESC_LEN + PROBE_COUNT * (TUD_CDC_DESC_LEN + TUD_VENDOR_DESC_LEN) + TUD_RPI_RESET_DESC_LEN)
 #endif
 
 static uint8_t const desc_hid_report[] =
@@ -115,6 +134,11 @@ uint8_t desc_configuration[] =
 #endif
   // Interface 1 + 2
   TUD_CDC_DESCRIPTOR(ITF_NUM_CDC_COM, 6, CDC_NOTIFICATION_EP_NUM, 64, CDC_DATA_OUT_EP_NUM, CDC_DATA_IN_EP_NUM, 64),
+#ifdef DUAL_PROBE_PICO
+  // Probe B: interface 3, then 4 + 5
+  TUD_VENDOR_DESCRIPTOR(ITF_NUM_PROBE_B, 8, DAP_B_OUT_EP_NUM, DAP_B_IN_EP_NUM, 64),
+  TUD_CDC_DESCRIPTOR(ITF_NUM_CDC_B_COM, 9, CDC_B_NOTIFICATION_EP_NUM, 64, CDC_B_DATA_OUT_EP_NUM, CDC_B_DATA_IN_EP_NUM, 64),
+#endif
   // Reset interface
   TUD_RPI_RESET_DESCRIPTOR(ITF_NUM_RESET, 7),
 };
@@ -142,9 +166,18 @@ char const* string_desc_arr [] =
   PROBE_PRODUCT_STRING, // 2: Product
   usb_serial,     // 3: Serial, uses flash unique ID
   "CMSIS-DAP v1 Interface", // 4: Interface descriptor for HID transport
+#ifdef DUAL_PROBE_PICO
+  "CMSIS-DAP v2 Interface A", // 5: Interface descriptor for probe A Bulk transport
+  "CDC-ACM UART Interface A", // 6: Interface descriptor for probe A CDC
+#else
   "CMSIS-DAP v2 Interface", // 5: Interface descriptor for Bulk transport
   "CDC-ACM UART Interface", // 6: Interface descriptor for CDC
+#endif
   "Reset", // 7: Interface descriptor for Reset
+#ifdef DUAL_PROBE_PICO
+  "CMSIS-DAP v2 Interface B", // 8: Interface descriptor for probe B Bulk transport
+  "CDC-ACM UART Interface B", // 9: Interface descriptor for probe B CDC
+#endif
 };
 
 static uint16_t _desc_str[32];
@@ -204,7 +237,7 @@ https://developers.google.com/web/fundamentals/native-hardware/build-for-webusb/
 (Section Microsoft OS compatibility descriptors)
 */
 #define MS_OS_FEATURE_DESC_LEN 0xA0
-#define MS_OS_20_DESC_LEN  (0x0A + 0x08 + MS_OS_FEATURE_DESC_LEN + RPI_RESET_MS_OS_20_DESC_LEN)
+#define MS_OS_20_DESC_LEN  (0x0A + 0x08 + PROBE_COUNT * MS_OS_FEATURE_DESC_LEN + RPI_RESET_MS_OS_20_DESC_LEN)
 
 #define BOS_TOTAL_LEN      (TUD_BOS_DESC_LEN + TUD_BOS_MICROSOFT_OS_DESC_LEN)
 
@@ -217,6 +250,26 @@ uint8_t const desc_bos[] =
   TUD_BOS_MS_OS_20_DESCRIPTOR(MS_OS_20_DESC_LEN, 1)
 };
 
+#define DAP_MS_OS_20_DESCRIPTOR(itf_num) \
+  /* Function Subset header: length, type, first interface, reserved, subset length */ \
+  U16_TO_U8S_LE(0x0008), U16_TO_U8S_LE(MS_OS_20_SUBSET_HEADER_FUNCTION), itf_num, 0, U16_TO_U8S_LE(MS_OS_FEATURE_DESC_LEN), \
+  \
+  /* MS OS 2.0 Compatible ID descriptor: length, type, compatible ID, sub compatible ID */ \
+  U16_TO_U8S_LE(0x0014), U16_TO_U8S_LE(MS_OS_20_FEATURE_COMPATBLE_ID), 'W', 'I', 'N', 'U', 'S', 'B', 0x00, 0x00, \
+  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* sub-compatible */ \
+  \
+  /* MS OS 2.0 Registry property descriptor: length, type */ \
+  U16_TO_U8S_LE(MS_OS_FEATURE_DESC_LEN-0x08-0x14), U16_TO_U8S_LE(MS_OS_20_FEATURE_REG_PROPERTY), \
+  U16_TO_U8S_LE(0x0007), U16_TO_U8S_LE(0x002A), /* wPropertyDataType, wPropertyNameLength and PropertyName "DeviceInterfaceGUIDs\0" in UTF-16 */ \
+  'D', 0x00, 'e', 0x00, 'v', 0x00, 'i', 0x00, 'c', 0x00, 'e', 0x00, 'I', 0x00, 'n', 0x00, 't', 0x00, 'e', 0x00, \
+  'r', 0x00, 'f', 0x00, 'a', 0x00, 'c', 0x00, 'e', 0x00, 'G', 0x00, 'U', 0x00, 'I', 0x00, 'D', 0x00, 's', 0x00, 0x00, 0x00, \
+  U16_TO_U8S_LE(0x0050), /* wPropertyDataLength */ \
+  /* bPropertyData "{CDB3B5AD-293B-4663-AA36-1AAE46463776}" as a UTF-16 string (b doesn't mean bytes) */ \
+  '{', 0x00, 'C', 0x00, 'D', 0x00, 'B', 0x00, '3', 0x00, 'B', 0x00, '5', 0x00, 'A', 0x00, 'D', 0x00, '-', 0x00, \
+  '2', 0x00, '9', 0x00, '3', 0x00, 'B', 0x00, '-', 0x00, '4', 0x00, '6', 0x00, '6', 0x00, '3', 0x00, '-', 0x00, \
+  'A', 0x00, 'A', 0x00, '3', 0x00, '6', 0x00, '-', 0x00, '1', 0x00, 'A', 0x00, 'A', 0x00, 'E', 0x00, '4', 0x00, \
+  '6', 0x00, '4', 0x00, '6', 0x00, '3', 0x00, '7', 0x00, '7', 0x00, '6', 0x00, '}', 0x00, 0x00, 0x00, 0x00, 0x00
+
 uint8_t const desc_ms_os_20[] =
 {
   // Set header: length, type, windows version, total length
@@ -225,24 +278,10 @@ uint8_t const desc_ms_os_20[] =
   // Configuration subset header: length, type, configuration index, reserved, configuration total length
   U16_TO_U8S_LE(0x0008), U16_TO_U8S_LE(MS_OS_20_SUBSET_HEADER_CONFIGURATION), 0, 0, U16_TO_U8S_LE(MS_OS_20_DESC_LEN-0x0A),
 
-  // Function Subset header: length, type, first interface, reserved, subset length
-  U16_TO_U8S_LE(0x0008), U16_TO_U8S_LE(MS_OS_20_SUBSET_HEADER_FUNCTION), ITF_NUM_PROBE, 0, U16_TO_U8S_LE(MS_OS_FEATURE_DESC_LEN),
-
-  // MS OS 2.0 Compatible ID descriptor: length, type, compatible ID, sub compatible ID
-  U16_TO_U8S_LE(0x0014), U16_TO_U8S_LE(MS_OS_20_FEATURE_COMPATBLE_ID), 'W', 'I', 'N', 'U', 'S', 'B', 0x00, 0x00,
-  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // sub-compatible
-
-  // MS OS 2.0 Registry property descriptor: length, type
-  U16_TO_U8S_LE(MS_OS_FEATURE_DESC_LEN-0x08-0x14), U16_TO_U8S_LE(MS_OS_20_FEATURE_REG_PROPERTY),
-  U16_TO_U8S_LE(0x0007), U16_TO_U8S_LE(0x002A), // wPropertyDataType, wPropertyNameLength and PropertyName "DeviceInterfaceGUIDs\0" in UTF-16
-  'D', 0x00, 'e', 0x00, 'v', 0x00, 'i', 0x00, 'c', 0x00, 'e', 0x00, 'I', 0x00, 'n', 0x00, 't', 0x00, 'e', 0x00,
-  'r', 0x00, 'f', 0x00, 'a', 0x00, 'c', 0x00, 'e', 0x00, 'G', 0x00, 'U', 0x00, 'I', 0x00, 'D', 0x00, 's', 0x00, 0x00, 0x00,
-  U16_TO_U8S_LE(0x0050), // wPropertyDataLength
-  // bPropertyData "{CDB3B5AD-293B-4663-AA36-1AAE46463776}" as a UTF-16 string (b doesn't mean bytes)
-  '{', 0x00, 'C', 0x00, 'D', 0x00, 'B', 0x00, '3', 0x00, 'B', 0x00, '5', 0x00, 'A', 0x00, 'D', 0x00, '-', 0x00,
-  '2', 0x00, '9', 0x00, '3', 0x00, 'B', 0x00, '-', 0x00, '4', 0x00, '6', 0x00, '6', 0x00, '3', 0x00, '-', 0x00,
-  'A', 0x00, 'A', 0x00, '3', 0x00, '6', 0x00, '-', 0x00, '1', 0x00, 'A', 0x00, 'A', 0x00, 'E', 0x00, '4', 0x00,
-  '6', 0x00, '4', 0x00, '6', 0x00, '3', 0x00, '7', 0x00, '7', 0x00, '6', 0x00, '}', 0x00, 0x00, 0x00, 0x00, 0x00,
+  DAP_MS_OS_20_DESCRIPTOR(ITF_NUM_PROBE),
+#ifdef DUAL_PROBE_PICO
+  DAP_MS_OS_20_DESCRIPTOR(ITF_NUM_PROBE_B),
+#endif
 
   RPI_RESET_MS_OS_20_DESCRIPTOR(ITF_NUM_RESET)
 };

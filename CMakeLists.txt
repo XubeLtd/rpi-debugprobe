@@ -1,5 +1,7 @@
 cmake_minimum_required(VERSION 3.12)
 
+option(DUAL_PROBE_PICO "Run two independent probes on a Raspberry Pi Pico (needs PICO_BOARD=pico)" OFF)
+
 # build for the Raspberry Pi Debug Probe by default
 set(PICO_BOARD debug_probe CACHE STRING "Board type")
 
@@ -29,10 +31,35 @@ add_executable(debugprobe
 target_sources(debugprobe PRIVATE
         CMSIS_DAP/CMSIS/DAP/Firmware/Source/DAP.c
         CMSIS_DAP/CMSIS/DAP/Firmware/Source/JTAG_DP.c
-        CMSIS_DAP/CMSIS/DAP/Firmware/Source/DAP_vendor.c
         CMSIS_DAP/CMSIS/DAP/Firmware/Source/SWO.c
         #CMSIS_DAP/CMSIS/DAP/Firmware/Source/SW_DP.c
         )
+
+if (DUAL_PROBE_PICO)
+    # Probe A is the regular build above; src/dual builds probe B's copy
+    target_sources(debugprobe PRIVATE
+            src/dual/dual_probe.c
+            src/dual/probe_b.c
+            src/dual/sw_dp_pio_b.c
+            src/dual/tusb_edpt_handler_b.c
+            src/dual/dap_b.c
+            src/dual/swo_b.c
+            src/swo_uart.c
+            src/target_vsense.c
+            )
+    target_include_directories(debugprobe PRIVATE
+            CMSIS_DAP/CMSIS/Driver/Include/
+            src/dual/
+            )
+    target_compile_definitions(debugprobe PRIVATE DUAL_PROBE_PICO=1)
+    target_link_libraries(debugprobe PRIVATE hardware_adc)
+    pico_generate_pio_header(debugprobe ${CMAKE_CURRENT_LIST_DIR}/src/swo_uart.pio)
+    # UART0 is probe B's target UART, so it can't be the stdio console
+    pico_enable_stdio_uart(debugprobe 0)
+else ()
+    # The dual probe implements the vendor commands in src/dual/dual_probe.c
+    target_sources(debugprobe PRIVATE CMSIS_DAP/CMSIS/DAP/Firmware/Source/DAP_vendor.c)
+endif ()
 
 target_include_directories(debugprobe PRIVATE
         CMSIS_DAP/CMSIS/DAP/Firmware/Include/
@@ -65,7 +92,11 @@ target_compile_definitions (debugprobe PRIVATE
     PICO_ENABLE_USB_RESET_VIA_VENDOR_INTERFACE=1
 )
 
-if (NOT PICO_BOARD STREQUAL "debug_probe")
+if (DUAL_PROBE_PICO)
+    set_target_properties(debugprobe PROPERTIES
+        OUTPUT_NAME "debugprobe_dual_on_${PICO_BOARD}"
+    )
+elseif (NOT PICO_BOARD STREQUAL "debug_probe")
     set_target_properties(debugprobe PROPERTIES
         OUTPUT_NAME "debugprobe_on_${PICO_BOARD}"
     )
@@ -83,7 +114,7 @@ target_link_libraries(debugprobe PRIVATE
         hardware_irq
         hardware_clocks
         FreeRTOS-Kernel
-        FreeRTOS-Kernel-Heap1
+        FreeRTOS-Kernel-Heap4
 )
 
 pico_set_binary_type(debugprobe copy_to_ram)

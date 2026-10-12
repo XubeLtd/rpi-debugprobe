@@ -26,10 +26,11 @@
 #ifndef CDC_UART_H
 #define CDC_UART_H
 
+// ptr is the CDC interface (probe) index
 void cdc_thread(void *ptr);
 void cdc_uart_init(void);
-bool cdc_task(void);
+bool cdc_task(uint8_t itf);
 
-extern TaskHandle_t uart_taskhandle;
+extern TaskHandle_t uart_taskhandle[];
 
 #endif

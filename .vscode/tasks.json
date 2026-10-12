@@ -1,0 +1,30 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Build dual probe (Pico)",
+            "detail": "Needs the dependencies from ./setup.sh",
+            "type": "shell",
+            "command": "cmake -S . -B build-dual -G Ninja -DPICO_BOARD=pico -DDUAL_PROBE_PICO=ON -DPICO_SDK_PATH='${workspaceFolder}/.pico-sdk/sdk/2.3.1' -DPICO_TOOLCHAIN_PATH='${workspaceFolder}/.pico-sdk/toolchain/14_2_Rel1' -Dpicotool_DIR='${workspaceFolder}/.pico-sdk/picotool/2.3.0/picotool' && cmake --build build-dual",
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "problemMatcher": {
+                "base": "$gcc",
+                "fileLocation": ["autoDetect", "${workspaceFolder}"]
+            }
+        },
+        {
+            "label": "Flash dual probe (Pico)",
+            "detail": "Reboots the Pico into BOOTSEL if needed, then loads and runs the firmware",
+            "type": "shell",
+            // picotool -f only auto-detects a few Raspberry Pi product IDs, not the Debug Probe's
+            // (0x000c), so a running probe has to be selected by VID/PID. That filter misses a
+            // Pico that is already in BOOTSEL mode, so fall back to a plain load for that case.
+            "command": "P='${workspaceFolder}/.pico-sdk/picotool/2.3.0/picotool/picotool'; F=build-dual/debugprobe_dual_on_pico.uf2; \"$P\" load -v -x \"$F\" -f --vid 0x2e8a --pid 0x000c || { echo 'No running probe found, trying a Pico in BOOTSEL mode'; \"$P\" load -v -x \"$F\"; }",
+            "dependsOn": "Build dual probe (Pico)",
+            "problemMatcher": []
+        }
+    ]
+}

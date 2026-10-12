@@ -112,6 +112,9 @@ uint16_t dap_edpt_open(uint8_t __unused rhport, tusb_desc_interface_t const *itf
 	TU_VERIFY(TUSB_CLASS_VENDOR_SPECIFIC == itf_desc->bInterfaceClass &&
 			DAP_INTERFACE_SUBCLASS == itf_desc->bInterfaceSubClass &&
 			DAP_INTERFACE_PROTOCOL == itf_desc->bInterfaceProtocol, 0);
+#ifdef PROBE_DAP_ITF
+	TU_VERIFY(PROBE_DAP_ITF == itf_desc->bInterfaceNumber, 0);
+#endif
 
 	uint16_t const drv_len = sizeof(tusb_desc_interface_t) + (itf_desc->bNumEndpoints * sizeof(tusb_desc_endpoint_t));
 	TU_VERIFY(max_len >= drv_len, 0);
@@ -287,6 +290,8 @@ usbd_class_driver_t const _dap_edpt_driver =
 #endif
 };
 
+// The dual probe registers both probes' drivers in src/dual/dual_probe.c
+#ifndef DUAL_PROBE_PICO
 static usbd_class_driver_t const _edpt_drivers[] = {
 	_dap_edpt_driver,
 	usb_reset_interface_driver,
@@ -298,4 +303,5 @@ usbd_class_driver_t const *usbd_app_driver_get_cb(uint8_t *driver_count)
 	*driver_count = sizeof(_edpt_drivers) / sizeof(_edpt_drivers[0]);
 	return _edpt_drivers;
 }
+#endif
 

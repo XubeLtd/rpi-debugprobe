@@ -46,6 +46,10 @@
 #include "tusb_edpt_handler.h"
 #include "DAP.h"
 #include "hardware/structs/usb.h"
+#ifdef DUAL_PROBE_PICO
+#include "dual_probe.h"
+#include "target_vsense.h"
+#endif
 
 // UART0 for debugprobe debug
 // UART1 for debugprobe to target device
@@ -63,6 +67,19 @@ static uint8_t RxDataBuffer[CFG_TUD_HID_EP_BUFSIZE];
 
 TaskHandle_t dap_taskhandle, tud_taskhandle, mon_taskhandle;
 
+static const struct {
+  TaskFunction_t dap_thread;
+  TaskHandle_t *dap_taskhandle;
+  /* Core(s) for the probe's DAP and autobaud threads */
+  UBaseType_t core_mask;
+} probes[PROBE_COUNT] = {
+  { dap_thread, &dap_taskhandle, (1 << 1) },
+#ifdef DUAL_PROBE_PICO
+  /* Give probe B's SWD the other core */
+  { dap_thread_b, &dap_taskhandle_b, (1 << 0) },
+#endif
+};
+
 static int was_configured;
 
 void dev_mon(void *ptr)
@@ -74,6 +91,9 @@ void dev_mon(void *ptr)
     do {
         /* ~5 SOF events per tick */
         xTaskDelayUntil(&wake, 100);
+#ifdef DUAL_PROBE_PICO
+        target_vsense_poll();
+#endif
         if (tud_connected() && !tud_suspended()) {
             sof[i++] = usb_hw->sof_rd & USB_SOF_RD_BITS;
             i = i % 3;
@@ -152,9 +172,15 @@ int main(void) {
     usb_serial_init();
     cdc_uart_init();
     tusb_init();
+#ifndef DUAL_PROBE_PICO
+    /* The dual probe has no debug UART: UART0 is probe B's target UART */
     stdio_uart_init();
+#endif
 
     DAP_Setup();
+#ifdef DUAL_PROBE_PICO
+    dual_probe_init();
+#endif
 
     probe_info("Welcome to debugprobe!\n");
 
@@ -174,7 +200,8 @@ int main(void) {
 
     while (!THREADED) {
         tud_task();
-        cdc_task();
+        for (uint8_t i = 0; i < PROBE_COUNT; i++)
+            cdc_task(i);
 
 #if (PROBE_DEBUG_PROTOCOL == PROTO_DAP_V2)
         if (tud_vendor_available()) {
@@ -257,11 +284,13 @@ void tud_suspend_cb(bool remote_wakeup_en)
   probe_info("Suspended\n");
   /* Were we actually configured? If not, threads don't exist */
   if (was_configured) {
-	  vTaskSuspend(uart_taskhandle);
-	  vTaskSuspend(dap_taskhandle);
-    if (autobaud_running)
-      autobaud_wait_stop();
-    vTaskSuspend(autobaud_taskhandle);
+    for (uint8_t i = 0; i < PROBE_COUNT; i++) {
+      vTaskSuspend(uart_taskhandle[i]);
+      vTaskSuspend(*probes[i].dap_taskhandle);
+      if (autobaud_running[i])
+        autobaud_wait_stop(i);
+      vTaskSuspend(autobaud_taskhandle[i]);
+    }
   }
   /* slow down clk_sys for power saving ? */
 }
@@ -270,23 +299,27 @@ void tud_resume_cb(void)
 {
   probe_info("Resumed\n");
   if (was_configured) {
-    vTaskResume(uart_taskhandle);
-    vTaskResume(dap_taskhandle);
-    vTaskResume(autobaud_taskhandle);
+    for (uint8_t i = 0; i < PROBE_COUNT; i++) {
+      vTaskResume(uart_taskhandle[i]);
+      vTaskResume(*probes[i].dap_taskhandle);
+      vTaskResume(autobaud_taskhandle[i]);
+    }
   }
 }
 
 void tud_unmount_cb(void)
 {
   probe_info("Disconnected/reset\n");
-  vTaskSuspend(uart_taskhandle);
-  vTaskSuspend(dap_taskhandle);
-  vTaskDelete(uart_taskhandle);
-  vTaskDelete(dap_taskhandle);
-  if (autobaud_running)
-    autobaud_wait_stop();
-  vTaskSuspend(autobaud_taskhandle);
-  vTaskDelete(autobaud_taskhandle);
+  for (uint8_t i = 0; i < PROBE_COUNT; i++) {
+    vTaskSuspend(uart_taskhandle[i]);
+    vTaskSuspend(*probes[i].dap_taskhandle);
+    vTaskDelete(uart_taskhandle[i]);
+    vTaskDelete(*probes[i].dap_taskhandle);
+    if (autobaud_running[i])
+      autobaud_wait_stop(i);
+    vTaskSuspend(autobaud_taskhandle[i]);
+    vTaskDelete(autobaud_taskhandle[i]);
+  }
   was_configured = 0;
 }
 
@@ -294,17 +327,19 @@ void tud_mount_cb(void)
 {
   probe_info("Connected, Configured: %d\n", !!was_configured);
   if (!was_configured) {
-    /* UART needs to preempt USB as if we don't, characters get lost */
-    xTaskCreate(cdc_thread, "UART", configMINIMAL_STACK_SIZE, NULL, UART_TASK_PRIO, &uart_taskhandle);
-    /* Lowest priority thread is debug - need to shuffle buffers before we can toggle swd... */
-    xTaskCreate(dap_thread, "DAP", configMINIMAL_STACK_SIZE, NULL, DAP_TASK_PRIO, &dap_taskhandle);
-    /* Autobaud detection using PIO as a frequency counter */
-    xTaskCreate(autobaud_thread, "ABR", configMINIMAL_STACK_SIZE, NULL, AUTOBAUD_TASK_PRIO, &autobaud_taskhandle);
+    for (uintptr_t i = 0; i < PROBE_COUNT; i++) {
+      /* UART needs to preempt USB as if we don't, characters get lost */
+      xTaskCreate(cdc_thread, "UART", configMINIMAL_STACK_SIZE, (void *)i, UART_TASK_PRIO, &uart_taskhandle[i]);
+      /* Lowest priority thread is debug - need to shuffle buffers before we can toggle swd... */
+      xTaskCreate(probes[i].dap_thread, "DAP", configMINIMAL_STACK_SIZE, NULL, DAP_TASK_PRIO, probes[i].dap_taskhandle);
+      /* Autobaud detection using PIO as a frequency counter */
+      xTaskCreate(autobaud_thread, "ABR", configMINIMAL_STACK_SIZE, (void *)i, AUTOBAUD_TASK_PRIO, &autobaud_taskhandle[i]);
 #if(configNUMBER_OF_CORES > 1)
-    vTaskCoreAffinitySet(autobaud_taskhandle, (1 << 1));
-    vTaskCoreAffinitySet(dap_taskhandle, (1 << 1));
-    vTaskCoreAffinitySet(uart_taskhandle, (1 << 0));
+      vTaskCoreAffinitySet(autobaud_taskhandle[i], probes[i].core_mask);
+      vTaskCoreAffinitySet(*probes[i].dap_taskhandle, probes[i].core_mask);
+      vTaskCoreAffinitySet(uart_taskhandle[i], (1 << 0));
 #endif
+    }
     was_configured = 1;
   }
 }

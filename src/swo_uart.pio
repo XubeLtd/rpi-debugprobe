@@ -1,0 +1,38 @@
+; 8n1 UART receiver for SWO trace in UART (NRZ) mode, based on the uart_rx
+; program from pico-examples. IN pin 0 and the JMP pin are both the SWO pin.
+; Each byte is pushed left-justified, in bits 31:24 of the RX FIFO entry.
+
+.program swo_uart_rx
+
+start:
+    wait 0 pin 0        ; Stall until start bit is asserted
+    set x, 7    [10]    ; Preload bit counter, then delay until halfway through
+bitloop:                ; the first data bit (12 cycles incl wait, set).
+    in pins, 1          ; Shift data bit into ISR
+    jmp x-- bitloop [6] ; Loop 8 times, each loop iteration is 8 cycles
+    jmp pin good_stop   ; Check stop bit (should be high)
+
+    wait 1 pin 0        ; Framing error or break: drop the byte and wait for
+    jmp start           ; the line to return to idle
+
+good_stop:
+    push noblock        ; If the host falls behind, drop bytes rather than
+                        ; stall and lose framing
+
+% c-sdk {
+static inline void swo_uart_rx_program_init(PIO pio, uint sm, uint offset, uint pin, float div) {
+    pio_sm_set_consecutive_pindirs(pio, sm, pin, 1, false);
+
+    pio_sm_config c = swo_uart_rx_program_get_default_config(offset);
+    sm_config_set_in_pins(&c, pin); // for WAIT, IN
+    sm_config_set_jmp_pin(&c, pin); // for JMP
+    // Shift to right, autopush disabled
+    sm_config_set_in_shift(&c, true, false, 32);
+    // Deeper FIFO as we're not doing any TX
+    sm_config_set_fifo_join(&c, PIO_FIFO_JOIN_RX);
+    // 8 execution cycles per bit
+    sm_config_set_clkdiv(&c, div);
+
+    pio_sm_init(pio, sm, offset, &c);
+}
+%}

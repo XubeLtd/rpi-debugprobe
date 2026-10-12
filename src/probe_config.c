@@ -46,4 +46,23 @@ void bi_decl_config()
     bi_decl(bi_1pin_with_name(PROBE_UART_DTR, "PROBE UART DTR"));
 #endif
 
+#ifdef PROBE_PIN_SWO
+    bi_decl(bi_1pin_with_name(PROBE_PIN_SWO, "PROBE SWO"));
+#endif
+
+#ifdef PROBE_PIN_VSENSE
+    bi_decl(bi_1pin_with_name(PROBE_PIN_VSENSE, "PROBE VSENSE"));
+#endif
+
+#ifdef DUAL_PROBE_PICO
+    bi_decl(bi_1pin_with_name(PROBE_B_PIN_RESET, "PROBE B RESET"));
+    bi_decl(bi_1pin_with_name(PROBE_B_PIN_SWCLK, "PROBE B SWCLK"));
+    bi_decl(bi_1pin_with_name(PROBE_B_PIN_SWDIO, "PROBE B SWDIO"));
+    bi_decl(bi_1pin_with_name(PROBE_B_PIN_SWO, "PROBE B SWO"));
+    bi_decl(bi_1pin_with_name(PROBE_B_PIN_VSENSE, "PROBE B VSENSE"));
+    bi_decl(bi_program_feature("PROBE B UART INTERFACE " STR(PROBE_B_UART_INTERFACE)));
+    bi_decl(bi_1pin_with_name(PROBE_B_UART_TX, "PROBE B UART TX"));
+    bi_decl(bi_1pin_with_name(PROBE_B_UART_RX, "PROBE B UART RX"));
+#endif
+
 }

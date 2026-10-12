@@ -43,6 +43,7 @@ This information includes:
  - Debug Access Port supported modes and settings (JTAG/SWD and SWO).
  - Optional information about a connected Target Device (for Evaluation Boards).
 */
+#include <string.h>
 #include <pico/stdlib.h>
 #include <hardware/clocks.h>
 #include <hardware/gpio.h>
@@ -50,6 +51,7 @@ This information includes:
 #include "cmsis_compiler.h"
 #include "probe_config.h"
 #include "probe.h"
+#include "get_serial.h"
 
 /// Processor Clock of the Cortex-M MCU used in the Debug Unit.
 /// This value is used to calculate the SWD/JTAG clock speed.
@@ -100,7 +102,11 @@ This information includes:
 
 /// Indicate that UART Serial Wire Output (SWO) trace is available.
 /// This information is returned by the command \ref DAP_Info as part of <b>Capabilities</b>.
+#ifdef PROBE_PIN_SWO
+#define SWO_UART                1               ///< SWO UART:  1 = available, 0 = not available.
+#else
 #define SWO_UART                0               ///< SWO UART:  1 = available, 0 = not available.
+#endif
 
 /// USART Driver instance number for the UART SWO.
 #define SWO_UART_DRIVER         0               ///< USART Driver instance number (Driver_USART#).
@@ -180,8 +186,14 @@ __STATIC_INLINE uint8_t DAP_GetProductString (char *str) {
 \return String length (including terminating NULL character) or 0 (no string).
 */
 __STATIC_INLINE uint8_t DAP_GetSerNumString (char *str) {
+#ifdef PROBE_SER_SUFFIX
+  strcpy(str, usb_serial);
+  strcat(str, PROBE_SER_SUFFIX);
+  return (uint8_t)(strlen(str) + 1U);
+#else
   (void)str;
   return (0U);
+#endif
 }
 
 /** Get Target Device Vendor string.

@@ -65,6 +65,10 @@ do { \
 
 #include "board_config.h"
 
+#ifndef PROBE_COUNT
+#define PROBE_COUNT 1
+#endif
+
 // Add the configuration to binary information
 void bi_decl_config();
 
