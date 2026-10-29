@@ -3,12 +3,9 @@
 # CMSIS-DAP DAP_HostStatus command, then turns it off and exits. Install its
 # packages with: pip install -r tools/requirements.txt
 # Usage: blink_running_led.py A|B [seconds]
-import sys
+import argparse
+import math
 import time
-
-import libusb_package
-import usb.core
-import usb.util
 
 VID, PID = 0x2E8A, 0x000C
 PRODUCT = "Dual Debugprobe (CMSIS-DAP)"  # PROBE_PRODUCT_STRING
@@ -17,37 +14,57 @@ DAP_HOST_STATUS, RUNNING_LED = 0x01, 0x01
 HALF_PERIOD = 0.25
 
 
-def main():
-    probe = sys.argv[1].upper() if len(sys.argv) > 1 else ""
-    if probe not in DAP_ITF:
-        sys.exit("usage: blink_running_led.py A|B [seconds]")
-    seconds = float(sys.argv[2]) if len(sys.argv) > 2 else 5.0
+def select_device(devices, serial):
+    matches = [dev for dev in devices if dev.product == PRODUCT and
+               (serial is None or dev.serial_number == serial)]
+    if len(matches) != 1:
+        raise RuntimeError("Select exactly one connected dual probe with --serial.")
+    return matches[0]
 
-    dev = usb.core.find(idVendor=VID, idProduct=PID, backend=libusb_package.get_libusb1_backend(),
-                        custom_match=lambda d: d.product == PRODUCT)
-    if dev is None:
-        sys.exit("no dual debug probe found")
-    itf = dev.get_active_configuration()[(DAP_ITF[probe], 0)]
+
+def parse_args(argv=None):
+    parser = argparse.ArgumentParser(description="Blink one Pico HAT's onboard LED without connecting to its targets.")
+    parser.add_argument("probe", choices=DAP_ITF)
+    parser.add_argument("seconds", type=float, nargs="?", default=5.0)
+    parser.add_argument("--serial", help="Exact Pico USB serial; required when several HATs are connected.")
+    args = parser.parse_args(argv)
+    if not math.isfinite(args.seconds) or not 0 < args.seconds <= 120:
+        parser.error("seconds must be greater than zero and at most 120")
+    return args
+
+
+def main():
+    import libusb_package
+    import usb.core
+    import usb.util
+
+    args = parse_args()
+
+    dev = select_device(usb.core.find(find_all=True, idVendor=VID, idProduct=PID,
+                        backend=libusb_package.get_libusb1_backend()), args.serial)
+    itf = dev.get_active_configuration()[(DAP_ITF[args.probe], 0)]
     ep_out = usb.util.find_descriptor(itf, custom_match=lambda e: not e.bEndpointAddress & 0x80)
     ep_in = usb.util.find_descriptor(itf, custom_match=lambda e: e.bEndpointAddress & 0x80)
 
     def set_led(on):
-        ep_out.write(bytes([DAP_HOST_STATUS, RUNNING_LED, on]))
+        ep_out.write(bytes([DAP_HOST_STATUS, RUNNING_LED, on]), timeout=1000)
         if bytes(ep_in.read(64, timeout=1000)[:2]) != bytes([DAP_HOST_STATUS, 0x00]):
-            sys.exit("probe did not accept DAP_HostStatus")
+            raise RuntimeError("probe did not accept DAP_HostStatus")
 
     usb.util.claim_interface(dev, itf.bInterfaceNumber)
     try:
-        end = time.monotonic() + seconds
+        end = time.monotonic() + args.seconds
         on = True
         while (left := end - time.monotonic()) > 0:
             set_led(on)
             on = not on
             time.sleep(min(HALF_PERIOD, left))
-        set_led(False)
     finally:
-        usb.util.release_interface(dev, itf.bInterfaceNumber)
-        usb.util.dispose_resources(dev)
+        try:
+            set_led(False)
+        finally:
+            usb.util.release_interface(dev, itf.bInterfaceNumber)
+            usb.util.dispose_resources(dev)
 
 
 if __name__ == "__main__":

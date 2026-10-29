@@ -1,5 +1,24 @@
 # Debugprobe
 
+## Identify a connected dual-probe HAT
+
+With dual firmware from commit `61441db` or later, install
+`tools/requirements.txt` and run:
+
+```bash
+python tools/blink_running_led.py A 30 --serial 505431651932789C
+```
+
+Use the exact USB serial of the intended Pico. With multiple HATs connected,
+omitting it is rejected. The command blinks for a bounded duration (up to 120
+seconds) and turns the LED off on exit. It sends only `DAP_HostStatus`, without
+connecting to SWD, resetting a target or changing its firmware. Do not run it
+while another operation owns that programmer.
+
+Both probe interfaces currently share GPIO25, so the LED identifies the whole
+HAT, not one of its two target connectors. Older dual firmware continuously
+controls GPIO25 for USB status and cannot provide this identification signal.
+
 Firmware source for the Raspberry Pi Debug Probe SWD/UART accessory. Can also be run on a Raspberry Pi Pico or Pico 2.
 
 [Raspberry Pi Debug Probe product page](https://www.raspberrypi.com/products/debug-probe/)
