@@ -23,6 +23,8 @@
 #define PROBE_UART_INTERFACE uart1
 #define PROBE_DAP_ITF 0
 #define PROBE_SER_SUFFIX "-A"
+#define PROBE_DAP_CONNECTED_LED 25
+#define PROBE_DAP_RUNNING_LED 25
 
 // Probe B
 #define PROBE_B_PIO pio1
@@ -38,13 +40,13 @@
 #define PROBE_B_UART_INTERFACE uart0
 #define PROBE_B_DAP_ITF 3
 #define PROBE_B_SER_SUFFIX "-B"
+#define PROBE_B_DAP_CONNECTED_LED 25
+#define PROBE_B_DAP_RUNNING_LED 25
 
 #define PROBE_UART_BAUDRATE 115200
 
 // 100K/100K divider between the target supply and the V-sense pins
 #define PROBE_VSENSE_DIVIDER 2
-
-#define PROBE_USB_CONNECTED_LED 25
 
 #define PROBE_PRODUCT_STRING "Dual Debugprobe (CMSIS-DAP)"
 

@@ -26,6 +26,16 @@
 #undef PROBE_SER_SUFFIX
 #define PROBE_SER_SUFFIX PROBE_B_SER_SUFFIX
 
+// The status LEDs are optional, so either can be left undefined for probe B
+#undef PROBE_DAP_CONNECTED_LED
+#ifdef PROBE_B_DAP_CONNECTED_LED
+#define PROBE_DAP_CONNECTED_LED PROBE_B_DAP_CONNECTED_LED
+#endif
+#undef PROBE_DAP_RUNNING_LED
+#ifdef PROBE_B_DAP_RUNNING_LED
+#define PROBE_DAP_RUNNING_LED PROBE_B_DAP_RUNNING_LED
+#endif
+
 // SWO.c captures through CMSIS driver Driver_USART<USART_PORT>
 #define USART_PORT 1
 
